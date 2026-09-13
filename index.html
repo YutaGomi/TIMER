@@ -36,7 +36,7 @@
 
       p#timer {
         margin: 0 auto;
-        font-size: 50px;
+        font-size: 100px;
       }
 
       p#elapsed_timer {
@@ -46,7 +46,7 @@
 
       span#minutes,
       span#seconds {
-        font-size: 350px;
+        font-size: 400px;
       }
 
       section#controller {
@@ -270,6 +270,9 @@
         pauseBtn.disabled = true;
         resetBtn.disabled = true;
         render();
+
+        presentingBox.checked = true;
+        finishedBox.checked = false;
       };
 
       const callManualBell = () => {
