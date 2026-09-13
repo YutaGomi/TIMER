@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>プレゼンタイマー（30分固定・自分用）</title>
+    <style>
+      html {
+        height: 100%;
+      }
+
+      body {
+        text-align: center;
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background-color: #263238;
+        color: white;
+        font-family: system-ui, sans-serif;
+      }
+
+      section#main {
+        height: calc(100% - 260px);
+        width: 100%;
+        display: table;
+      }
+
+      div.inner {
+        display: table-cell;
+        vertical-align: middle;
+      }
+
+      p#status {
+        margin: 0 auto;
+        font-size: 60px;
+      }
+
+      p#timer {
+        margin: 0 auto;
+        font-size: 50px;
+      }
+
+      p#elapsed_timer {
+        margin: 0 auto;
+        font-size: 16px;
+      }
+
+      span#minutes,
+      span#seconds {
+        font-size: 220px;
+      }
+
+      section#controller {
+        height: 230px;
+        font-size: 20px;
+      }
+
+      button {
+        display: inline-block;
+        padding: 0.5em 1em;
+        width: 120px;
+        font-size: 18px;
+        text-decoration: none;
+        color: #263238;
+        background: #fafafa;
+        border: none;
+        border-bottom: solid 4px #e0e0e0;
+        border-radius: 3px;
+        cursor: pointer;
+      }
+
+      button:active {
+        transform: translateY(4px);
+        border-bottom: none;
+      }
+
+      button:disabled {
+        color: #bdbdbd;
+        background: #e0e0e0;
+        border-bottom: solid 4px #9e9e9e;
+      }
+
+      section#settings {
+        margin: 14px auto 0;
+      }
+
+      label.checkboxLabel {
+        display: inline-block;
+        margin: 0 16px;
+        font-size: 16px;
+        user-select: none;
+        cursor: pointer;
+      }
+
+      label.checkboxLabel input {
+        transform: scale(1.3);
+        vertical-align: middle;
+        margin-right: 6px;
+      }
+
+      p#scheduleNote {
+        font-size: 13px;
+        color: #90a4ae;
+        margin: 10px auto 0;
+      }
+    </style>
+  </head>
+  <body>
+    <section id="main">
+      <div class="inner">
+        <p id="status">残り</p>
+        <p id="timer">
+          <span id="minutes">30</span>分 <span id="seconds">00</span>秒
+        </p>
+        <p id="elapsed_timer">
+          経過時間
+          <span id="elapsed_minutes">00</span>分
+          <span id="elapsed_seconds">00</span>秒
+        </p>
+      </div>
+    </section>
+    <section id="controller">
+      <button id="start">開始</button>
+      &emsp;
+      <button id="pause">一時停止</button>
+      &emsp;
+      <button id="reset">リセット</button>
+      &emsp;
+      <button id="bell">手動用鈴</button>
+
+      <section id="settings">
+        <label class="checkboxLabel">
+          <input type="checkbox" id="presenting" checked />発表中
+        </label>
+        <label class="checkboxLabel">
+          <input type="checkbox" id="finished" />発表終了（ミュート）
+        </label>
+        <p id="scheduleNote">
+          ・15分経過時：1回<br />
+          ・20分経過時：2回（発表中は5回）<br />
+          ・29分経過時：2回<br />
+          ・30分経過時：5回
+        </p>
+      </section>
+    </section>
+
+    <script>
+      const LIMIT_MINUTES = 30;
+      const LIMIT_SECONDS = LIMIT_MINUTES * 60;
+
+      // ベルスケジュール。count は presenting() の状態で動的に変わるものは関数にする
+      const BELL_SCHEDULE = [
+        { time: 15 * 60, count: () => 1 },
+        { time: 20 * 60, count: () => (presentingBox.checked ? 5 : 2) },
+        { time: 29 * 60, count: () => 2 },
+        { time: 30 * 60, count: () => 5 }, // 発表中チェックに関係なく常に5回。ミュートはringBell側で制御
+      ];
+
+      const timerPar = document.getElementById("timer");
+      const statusLbl = document.getElementById("status");
+      const minutesLbl = document.getElementById("minutes");
+      const secondsLbl = document.getElementById("seconds");
+      const elapsedMinutesLbl = document.getElementById("elapsed_minutes");
+      const elapsedSecondsLbl = document.getElementById("elapsed_seconds");
+
+      const startBtn = document.getElementById("start");
+      const pauseBtn = document.getElementById("pause");
+      const resetBtn = document.getElementById("reset");
+      const bellBtn = document.getElementById("bell");
+
+      const presentingBox = document.getElementById("presenting");
+      const finishedBox = document.getElementById("finished");
+
+      let timer = null;
+      let startTime = 0; // ms, タイマー開始(再開)時刻
+      let passTime = 0; // seconds, 表示上の経過時間
+      let passBackup = 0; // seconds, 一時停止時に確保しておく経過時間
+      let isRunning = false;
+      const firedBellTimes = new Set(); // 発火済みのベル時刻(秒)を記録。重複防止用
+
+      const zeroPadding = (num) => ("00" + num).slice(-2);
+      const minusPadding = (isMinus, num) =>
+        (isMinus ? "-" : "") + num.toString();
+
+      // ---- 音 (sounds/bell1.mp3, bell2.mp3, bell5.mp3 を使用) ----
+      // ファイル名の数字が鳴動回数に対応 (bell1.mp3=1回, bell2.mp3=2回, bell5.mp3=5回)
+      const playBellFile = (count) => {
+        const audio = new Audio(`sounds/bell${count}.mp3`);
+        audio.play();
+      };
+
+      // count 回転用のベルファイルを鳴らす。ミュート中は何もしない
+      const ringBell = (count) => {
+        if (finishedBox.checked) return;
+        playBellFile(count);
+      };
+
+      // ---- タイマー描画 ----
+      const render = () => {
+        const restTime = LIMIT_SECONDS - passTime;
+        timerPar.style.color = restTime < 0 ? "#E64A19" : "white";
+        minutesLbl.innerText = minusPadding(
+          restTime < 0,
+          Math.abs(parseInt(restTime / 60, 10)),
+        );
+        secondsLbl.innerText = zeroPadding(Math.abs(restTime) % 60);
+        elapsedMinutesLbl.innerText = zeroPadding(
+          Math.abs(parseInt(passTime / 60, 10)),
+        );
+        elapsedSecondsLbl.innerText = zeroPadding(Math.abs(passTime) % 60);
+      };
+
+      const getPassTime = () => {
+        const now = new Date().getTime();
+        return passBackup + Math.floor((now - startTime) / 1000);
+      };
+
+      const countDown = () => {
+        const nextPassTime = getPassTime();
+
+        if (nextPassTime !== passTime) {
+          // 完全一致ではなく範囲またぎで判定(取りこぼし・重複防止)
+          for (const bell of BELL_SCHEDULE) {
+            if (
+              bell.time > passTime &&
+              bell.time <= nextPassTime &&
+              !firedBellTimes.has(bell.time)
+            ) {
+              const count = bell.count();
+              if (count > 0) ringBell(count);
+              firedBellTimes.add(bell.time);
+            }
+          }
+        }
+
+        passTime = nextPassTime;
+        render();
+      };
+
+      // ---- 操作 ----
+      const startTimer = () => {
+        if (isRunning) return;
+        isRunning = true;
+        statusLbl.innerText = "残り";
+        startBtn.disabled = true;
+        pauseBtn.disabled = false;
+        resetBtn.disabled = true;
+        startTime = new Date().getTime();
+        timer = setInterval(countDown, 100);
+      };
+
+      const pauseTimer = () => {
+        if (!isRunning) return;
+        isRunning = false;
+        clearInterval(timer);
+        passBackup = passTime;
+        statusLbl.innerText = "一時停止中";
+        startBtn.disabled = false;
+        pauseBtn.disabled = true;
+        resetBtn.disabled = false;
+      };
+
+      const resetTimer = () => {
+        clearInterval(timer);
+        isRunning = false;
+        passTime = 0;
+        passBackup = 0;
+        firedBellTimes.clear();
+        statusLbl.innerText = "残り";
+        startBtn.disabled = false;
+        pauseBtn.disabled = true;
+        resetBtn.disabled = true;
+        render();
+      };
+
+      const callManualBell = () => {
+        // 手動テスト用なので、ミュート設定に関わらず1回分(bell1.mp3)を鳴らす
+        playBellFile(1);
+      };
+
+      // ---- 初期化 ----
+      window.addEventListener("load", () => {
+        render();
+        pauseBtn.disabled = true;
+        resetBtn.disabled = true;
+
+        startBtn.addEventListener("click", startTimer, false);
+        pauseBtn.addEventListener("click", pauseTimer, false);
+        resetBtn.addEventListener("click", resetTimer, false);
+        bellBtn.addEventListener("click", callManualBell, false);
+      });
+    </script>
+  </body>
+</html>
