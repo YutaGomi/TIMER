@@ -83,20 +83,6 @@
         margin: 14px auto 0;
       }
 
-      label.checkboxLabel {
-        display: inline-block;
-        margin: 0 16px;
-        font-size: 16px;
-        user-select: none;
-        cursor: pointer;
-      }
-
-      label.checkboxLabel input {
-        transform: scale(1.3);
-        vertical-align: middle;
-        margin-right: 6px;
-      }
-
       p#scheduleNote {
         font-size: 13px;
         color: #90a4ae;
@@ -128,16 +114,10 @@
       <button id="bell">手動用鈴</button>
 
       <section id="settings">
-        <label class="checkboxLabel">
-          <input type="checkbox" id="presenting" checked />発表中
-        </label>
-        <label class="checkboxLabel">
-          <input type="checkbox" id="finished" />セッション終了（ミュート）
-        </label>
         <p id="scheduleNote">
-          ・15分経過時：1回<br />
-          ・20分経過時：2回（発表中は5回）<br />
-          ・29分経過時：2回<br />
+          ・20分経過時：1回<br />
+          ・25分経過時：1回<br />
+          ・28分経過時：2回<br />
           ・30分経過時：5回
         </p>
       </section>
@@ -147,12 +127,12 @@
       const LIMIT_MINUTES = 30;
       const LIMIT_SECONDS = LIMIT_MINUTES * 60;
 
-      // ベルスケジュール。count は presenting() の状態で動的に変わるものは関数にする
+      // ベルスケジュール
       const BELL_SCHEDULE = [
-        { time: 15 * 60, count: () => 1 },
-        { time: 20 * 60, count: () => (presentingBox.checked ? 5 : 2) },
-        { time: 29 * 60, count: () => 2 },
-        { time: 30 * 60, count: () => 5 }, // 発表中チェックに関係なく常に5回。ミュートはringBell側で制御
+        { time: 20 * 60, count: () => 1 },
+        { time: 25 * 60, count: () => 1 },
+        { time: 28 * 60, count: () => 2 },
+        { time: 30 * 60, count: () => 5 },
       ];
 
       const timerPar = document.getElementById("timer");
@@ -166,9 +146,6 @@
       const pauseBtn = document.getElementById("pause");
       const resetBtn = document.getElementById("reset");
       const bellBtn = document.getElementById("bell");
-
-      const presentingBox = document.getElementById("presenting");
-      const finishedBox = document.getElementById("finished");
 
       let timer = null;
       let startTime = 0; // ms, タイマー開始(再開)時刻
@@ -188,9 +165,8 @@
         audio.play();
       };
 
-      // count 回転用のベルファイルを鳴らす。ミュート中は何もしない
+      // count 回転用のベルファイルを鳴らす
       const ringBell = (count) => {
-        if (finishedBox.checked) return;
         playBellFile(count);
       };
 
@@ -270,13 +246,10 @@
         pauseBtn.disabled = true;
         resetBtn.disabled = true;
         render();
-
-        presentingBox.checked = true;
-        finishedBox.checked = false;
       };
 
       const callManualBell = () => {
-        // 手動テスト用なので、ミュート設定に関わらず1回分(bell1.mp3)を鳴らす
+        // 手動テスト用に1回分(bell1.mp3)を鳴らす
         playBellFile(1);
       };
 
